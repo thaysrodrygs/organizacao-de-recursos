@@ -391,3 +391,203 @@ Definir dashboards, severidades, destinatários, SLOs e retenção com operaçã
 | Qualidade, versionamento, validação, registry, promoção e rollback de ML | Sem requisito explícito nos documentos consultados; recomendados para confiabilidade, auditoria e contenção de risco. |
 | CI, testes, evidências e documentação | PRD/especificação §§5–7; RNF-05/07; ferramentas e metas de teste seguem o que já está especificado, sem escolher stack de produção. |
 | Observabilidade, custos, retenção e controles LGPD | Segurança e auditabilidade relacionadas a RNF-02/04; limiares, SLO, custo, finalidade e política legal não especificados. |
+
+## 13. Avaliação ATAM independente
+
+### Escopo e critérios de leitura
+
+Esta avaliação complementa, sem substituir, os fatos, lacunas, decisões propostas e riscos já registrados acima e em [arquitetura.md](./arquitetura.md). Usa personas, PRD, requisitos não funcionais e regras de negócio como fontes. A execução diária do pipeline é tratada como requisito desta atividade, não como requisito confirmado do produto. Não houve validação com stakeholders; prioridades, respostas esperadas e métricas abaixo são análise da equipe avaliadora, não compromisso de produto.
+
+Não há valores propostos de latência, volume, disponibilidade, recuperação, qualidade de dados ou modelo. As métricas indicam o que observar; seus limiares e, onde necessário, sua instrumentação precisam ser acordados com produto e operação. A prioridade é ordinal e provisória: **Importância** representa impacto para stakeholders/requisitos; **Dificuldade** representa incerteza e esforço arquitetural para satisfazer o cenário. Alta/média/baixa não são medições nem classificação aprovada. Os IDs dos cenários servem à rastreabilidade, não representam ranking; cada cenário registra explicitamente importância e dificuldade.
+
+### Drivers avaliados
+
+| Ordem provisória | Driver | Base e distinção |
+|---|---|---|
+| 1 | Impedir falha de autorização e reservas duplicadas; manter a aplicação executável. | Critérios impeditivos da especificação e PRD; RF-01, RF-04–RF-06; RNF-01/02. |
+| 2 | Preservar integridade de alocação, histórico e dados mesmo sob concorrência, falha ou degradação. | Regras 1–5 e 10; RF-08/RF-10; RNF-01/04. |
+| 3 | Conter falhas do job e proteger dados processados. | Job diário pedido nesta atividade; isolamento, processamento incremental e privacidade são decisões propostas, não requisitos de produto já aprovados. |
+| 4 | Não promover nem continuar usando candidato de qualidade inferior; recuperar a versão anterior quando aplicável. | Não há consumidor ou finalidade de ML confirmados; D6/D7 e §§8–9 propõem salvaguardas sujeitas a decisão. |
+| 5 | Tornar operação, qualidade e resultados verificáveis. | RNF-04/05, entregáveis de RTM/testes e decisões D3/D4/D7/D10; SLOs operacionais não especificados. |
+
+### Utility tree
+
+Folhas são objetivos de qualidade que a arquitetura deve sustentar. **P1** indica importância alta e dificuldade alta; **P2**, importância alta e dificuldade média/alta; **P3**, importância média. São classes relativas de avaliação, não requisitos novos.
+
+```text
+Utilidade do sistema
+├── Confiabilidade e integridade — prioridade muito alta
+│   ├── Integridade transacional de reserva e prevenção de conflito (P1; AT-01)
+│   ├── Atomicidade/resiliência do processamento incremental (P1; AT-03, AT-05)
+│   └── Exclusão mútua e idempotência de execuções (P1; AT-04)
+├── Segurança e privacidade — prioridade muito alta
+│   ├── Autorização por perfil no fluxo transacional (P1; AT-01)
+│   └── Confidencialidade de dados, artefatos e logs (P1; AT-10)
+├── Disponibilidade e recuperabilidade — prioridade alta
+│   ├── Isolamento do batch em relação à aplicação (P2; AT-08)
+│   └── Retomada explícita sem perda nem duplicação (P1; AT-03, AT-09)
+├── Qualidade de dados e do modelo — prioridade alta, finalidade pendente
+│   ├── Rejeitar/quarentenar dados degradados sem avanço indevido (P1; AT-05)
+│   ├── Conter candidato inferior sem promoção (P1; AT-06)
+│   └── Reverter versão adotada sem afetar transações (P1 condicional; AT-07)
+└── Operabilidade, auditabilidade e desempenho — prioridade a confirmar
+    ├── Concluir/identificar a execução diária e seu atraso (P2; AT-02)
+    ├── Evidenciar qualidade, linhagem, retries e decisão (P2; AT-03–AT-07)
+    └── Medir carga e experiência sem metas quantitativas existentes (P2; AT-01, AT-08)
+```
+
+### Abordagens arquiteturais avaliadas
+
+| Abordagem | Atributos/cenários atendidos | Avaliação e status |
+|---|---|---|
+| Manter API e persistência como autoridade das reservas; separar logicamente o worker batch e impedir que ele escreva no domínio transacional. | Integridade, segurança, disponibilidade; AT-01, AT-08, AT-09. | Proposta D1/D2 coerente com critérios impeditivos; implantação física e limites de isolamento dependem de benchmark e operação. |
+| Ingerir por cursor/watermark, com manifesto, checkpoints, efeitos idempotentes e avanço posterior à confirmação. | Confiabilidade, recuperação, auditabilidade; AT-02–AT-05. | Proposta D3/D4; depende de fonte com cursor estável ou alternativa de sobreposição/deduplicação. Não equivale a garantia “exactly once”. |
+| Controlar concorrência de jobs por lease/fencing e validar identidade do worker ao confirmar. | Integridade e recuperabilidade; AT-03/04. | Abordagem proposta em §7; mecanismo durável e comportamento sob expiração precisam de teste de falhas. |
+| Validar candidato contra baseline; separar registro de candidato da promoção e preservar referência aprovada para rollback. | Qualidade, auditabilidade e recuperabilidade; AT-06/07. | Proposta D6/D7; só se torna decisão operacional após finalidade, métricas, autoridade e consumidor serem definidos. |
+| Aplicar mínimo privilégio, minimização de dados, logs sanitizados e retenção aprovada. | Segurança e privacidade; AT-05/10. | Proposta D8/D10; finalidade, campos, base legal, retenção e fornecedores ainda não determinados. |
+
+### Cenários de qualidade
+
+#### AT-01 — Uso diário da aplicação e integridade da reserva
+
+- **Prioridade:** Importância alta; Dificuldade alta.
+- **Fonte:** Solicitante, Responsável ou Administrador autenticado.
+- **Estímulo:** Usuário consulta, cria, altera ou cancela reserva; em paralelo, outra solicitação tenta alocar recurso ou professor em horário incompatível, ou o recurso está bloqueado por manutenção.
+- **Ambiente:** Operação normal com requisições concorrentes; regras de intervalo e transições ainda têm lacunas documentadas.
+- **Artefato:** API, autorização, casos de uso, regras de alocação e persistência transacional/auditoria (D1, D2; §§4–5).
+- **Resposta:** Autorizar somente a ação permitida ao perfil; confirmar no máximo uma alocação conflitante; rejeitar conflito/manutenção sem mutação parcial; registrar toda mudança de estado; devolver erro seguro e compreensível.
+- **Métrica:** Número de reservas conflitantes confirmadas; número de mutações sem evento de auditoria; decisões de autorização incorretas; duração/latência das operações e taxa de erro sob carga. Metas de desempenho e critérios de usabilidade não estão definidos.
+
+#### AT-02 — Execução diária no horário acordado
+
+- **Prioridade:** Importância alta; Dificuldade média.
+- **Fonte:** Agendador e operador do pipeline; a exigência diária vem desta atividade.
+- **Estímulo:** Chega a janela diária de execução ao final do dia.
+- **Ambiente:** Operação regular, incluindo intervalo vazio ou com dados elegíveis; hora, fuso, tolerância e política para feriados ainda não definidos.
+- **Artefato:** Agendador, worker, estado do job e observabilidade (D3, D9, D10; §§6–7, 9).
+- **Resposta:** Criar ou reconhecer uma única execução lógica para a data/intervalo, registrar início, fim e estado; concluir ou falhar explicitamente; não apresentar execução ausente ou parcial como sucesso.
+- **Métrica:** Execuções previstas/iniciadas/concluídas/falhas/ignoradas; atraso entre janela acordada e início/fim; duração por estágio; watermark inicial/final. Janela aceitável, duração máxima e SLO são pendentes.
+
+#### AT-03 — Falha parcial e retomada sem perda ou duplicação
+
+- **Prioridade:** Importância alta; Dificuldade alta.
+- **Fonte:** Worker, armazenamento de artefatos ou registro de modelos.
+- **Estímulo:** Um estágio falha ou perde a confirmação após gravar dados/artefato/candidato e antes de confirmar watermark ou estado final; o operador ou scheduler tenta retomar.
+- **Ambiente:** Falha transitória, timeout ou reinício com estado parcialmente persistido.
+- **Artefato:** Checkpoints, manifesto, watermark, armazenamento, registry e lógica de retry/reconciliação (D3, D4, D7; §§6–8).
+- **Resposta:** Marcar a execução como incompleta; manter o watermark quando o commit lógico não ocorreu; revalidar hashes e estado por chave idempotente; retomar/reconciliar sem duplicar efeito, descartar dados silenciosamente ou promover candidato sem autorização.
+- **Métrica:** Registros perdidos ou duplicados entre tentativas; divergências de manifesto/hash; watermarks avançados antes de artefatos verificados; duração de recuperação; estado final não reconciliado. RTO/RPO e limites de retry são pendentes.
+
+#### AT-04 — Jobs sobrepostos
+
+- **Prioridade:** Importância alta; Dificuldade alta.
+- **Fonte:** Agendador, operador ou uma execução anterior ainda ativa.
+- **Estímulo:** Uma nova execução diária/replay é disparada enquanto outra processa a mesma fonte e watermark.
+- **Ambiente:** Execução anterior lenta, lease expirado ou resposta de confirmação perdida; pode haver worker antigo ainda ativo.
+- **Artefato:** Lease, fencing token, estado por fonte/partição e escrita idempotente (D3, D4; §7).
+- **Resposta:** Impedir confirmação concorrente do mesmo intervalo; reconhecer duplicata como no-op auditável ou rejeitar/reter o segundo run; impedir worker obsoleto de avançar cursor ou sobrescrever estado.
+- **Métrica:** Número de runs simultâneos por intervalo; commits com token obsoleto; duplicação de registros/artefatos; locks órfãos e tempo até reconciliação. Tolerância e tempo de expiração do lease não estão definidos.
+
+#### AT-05 — Dados novos degradados ou fora do contrato
+
+- **Prioridade:** Importância alta; Dificuldade alta.
+- **Fonte:** Sistema/fonte autorizada de dados, ainda não identificada.
+- **Estímulo:** O intervalo novo contém esquema incompatível, registros duplicados/incompletos, valores inválidos, alterações tardias ou padrão/distribuição inesperados.
+- **Ambiente:** Execução diária com dados parciais ou mudança na fonte; esquema, cursor e critérios de qualidade pendentes.
+- **Artefato:** Extração, validação, preparação, quarentena, manifesto e watermark (D3–D5, D8; §§6–7, 9).
+- **Resposta:** Detectar e contabilizar anomalias; rejeitar ou colocar registros em quarentena de forma rastreável; não avançar cursor se houver risco de perda ou falha bloqueante; não usar dados fora da finalidade aprovada nem produzir sucesso enganoso.
+- **Métrica:** Contagens lidas/aceitas/rejeitadas/duplicadas; erros por regra e esquema; intervalo sem cobertura; atraso de dados tardios; divergência entre cursor e registros processados. Regras bloqueantes, limiares e política de reprocessamento permanecem pendentes.
+
+#### AT-06 — Candidato pior que a referência
+
+- **Prioridade:** Importância alta; Dificuldade alta.
+- **Fonte:** Validação de candidato e aprovador de ML/produto (papéis ainda não definidos).
+- **Estímulo:** Um candidato treinado com dados novos tem resultado inferior ao baseline aprovado ou viola restrição de qualidade/fairness que venha a ser definida.
+- **Ambiente:** Treino concluído, mas objetivo, conjunto de validação, métricas e limiares ainda não aprovados nos requisitos.
+- **Artefato:** Validação, evidências, registry e estado de promoção (D5–D7; §8).
+- **Resposta:** Registrar evidências e reprovação; manter candidato inativo e versão aprovada anterior inalterada; não atribuir aprovação automática com base apenas na conclusão do job.
+- **Métrica:** Diferença candidato-baseline por métrica e conjunto versionados; violações de restrições; promoções sem aprovação/evidência. Métricas do modelo e limiares de aceitação não podem ser escolhidos antes da finalidade ser definida.
+
+#### AT-07 — Rollback de versão adotada
+
+- **Prioridade:** Importância alta; Dificuldade alta. **Condicional:** só se um modelo vier a ser promovido e consumido.
+- **Fonte:** Operador/aprovador após regressão, incidente ou evidência de inadequação.
+- **Estímulo:** Uma versão em uso precisa ser retirada; uma falha ocorre durante a troca ou a confirmação do rollback.
+- **Ambiente:** Consumo downstream futuro, ainda não especificado; versão anterior e autoridade de rollback devem estar disponíveis.
+- **Artefato:** Registry, referência ativa, consumidor downstream e trilha de auditoria (D6, D7; §8).
+- **Resposta:** Reverter de forma controlada para versão previamente aprovada, confirmar qual versão o consumidor usa e auditar ator, motivo e resultado; não alterar reservas nem estados transacionais. Sem serving/inferência, retirar ou invalidar o artefato para consumo, não simular rollback de tráfego inexistente.
+- **Métrica:** Tempo entre decisão e confirmação; versão efetivamente consumida antes/depois; falhas de reconciliação; alterações transacionais atribuíveis ao modelo. RTO, mecanismo e metas não definidos; atualmente não há consumidor confirmado.
+
+#### AT-08 — Indisponibilidade de dependência
+
+- **Prioridade:** Importância alta; Dificuldade média/alta.
+- **Fonte:** Fonte de dados, armazenamento, registry ou persistência transacional.
+- **Estímulo:** Um serviço necessário fica indisponível, lento ou retorna erro durante uso diário ou execução batch.
+- **Ambiente:** Indisponibilidade parcial; notificações externas também podem falhar, mas são opcionais (PRD RF-11).
+- **Artefato:** API, persistência, worker, scheduler e adaptador de notificação (D1, D2, D9, D10; §§4–7, 9).
+- **Resposta:** Falha/retry explícito e limitado no batch, sem avançar watermark indevidamente; falha segura da operação transacional quando a fonte autoritativa não pode garantir integridade; falha de notificação não desfaz reserva confirmada; batch indisponível não bloqueia a API por acoplamento. Continuidade da própria API durante indisponibilidade de seu banco não é garantida pela proposta atual.
+- **Métrica:** Disponibilidade e taxa de erro por dependência/fluxo; duração da indisponibilidade; retries; idade do watermark; reservas confirmadas sem integridade; impacto do batch nas operações da API. SLO, timeout, RTO/RPO e fallback de cada serviço não definidos.
+
+#### AT-09 — Carga ou execução atrasada
+
+- **Prioridade:** Importância média; Dificuldade média/alta.
+- **Fonte:** Crescimento do volume de dados, atraso da fonte ou operador recuperando execução perdida.
+- **Estímulo:** O job recebe um delta maior que o habitual ou precisa processar janela acumulada após indisponibilidade.
+- **Ambiente:** Recursos/capacidade, orçamento, volume e prazo do batch desconhecidos; aplicações de reserva continuam em uso.
+- **Artefato:** Extração incremental, worker, recursos de execução e isolamento online/batch (D1, D3, D9; §§4, 7, 9).
+- **Resposta:** Processar intervalos rastreáveis sem releitura/duplicação indevida; respeitar limites operacionais a definir; não competir de forma a degradar inaceitavelmente a aplicação; reportar atraso/falha e permitir recuperação.
+- **Métrica:** Duração e custo por registro/execução; tamanho do delta; atraso do watermark; consumo de recursos; latência/erros da API durante batch. Teste de carga é exigido, mas perfil, limites e metas não foram especificados (RNF-06).
+
+#### AT-10 — Exposição ou uso não autorizado de dados
+
+- **Prioridade:** Importância alta; Dificuldade alta.
+- **Fonte:** Usuário/serviço sem permissão, operador, log, storage ou fornecedor externo.
+- **Estímulo:** Tentativa de ler dados pessoais, artefatos, rejeitados ou credenciais além da permissão; ou payload sensível é inadvertidamente emitido em log/exportação.
+- **Ambiente:** Dados e finalidade do treinamento ainda não inventariados; possibilidade de integração/serviço externo não decidida.
+- **Artefato:** Autorização da API e do worker, extração, storage, registry, logs, segredos e integrações (D1, D2, D8, D10; §§4, 9).
+- **Resposta:** Negar acesso e registrar evento sem revelar conteúdo; minimizar e restringir dados por finalidade; evitar payload/segredo em logs; detectar e tratar exposição conforme processo a definir. Não transferir dados identificáveis a fornecedor externo sem avaliação e autorização apropriadas.
+- **Métrica:** Acessos negados/indevidos confirmados; eventos de acesso a dados; ocorrências de dado pessoal/segredo em logs; volume/campos acessíveis por identidade; achados de testes de autorização e segurança. Critérios de retenção, severidade, resposta a incidente e escopo da meta “zero bugs ou vulnerabilidades críticas” continuam pendentes.
+
+### Pontos de sensibilidade e trade-offs
+
+| Ponto sensível / decisão relacionada | Efeito no cenário e trade-off |
+|---|---|
+| Limite transacional da reserva e proteção concorrente na persistência (D2; AT-01). | É central para impedir duplicidade; restrições/isolamento e consultas também afetam throughput e contenção. Tecnologia e metas de carga não foram escolhidas. |
+| Reserva e evento de auditoria na mesma unidade ou via outbox (D2; AT-01, AT-03). | Atomicidade simplifica integridade, mas acopla disponibilidade de escrita ao histórico; outbox reduz acoplamento de projeção, ao custo de atraso, retries e reconciliação. O consumidor do histórico precisa aceitar semântica definida. |
+| Semântica de “dados novos”, cursor e tratamento de eventos tardios (D3–D5; AT-02–AT-05). | Cursor de ingestão/commit e limite superior fixo melhoram retomada e evitam perda; a fonte pode não oferecer cursor estável. Janela de sobreposição ajuda a capturar atrasos, mas exige deduplicação e pode reler dados. |
+| Watermark depois de artefatos verificados (D4; AT-03, AT-05). | Reduz perda de dados, mas retarda avanço quando registry/storage falha; avanço prematuro favorece pontualidade aparente, porém pode saltar dados e deve ser evitado. |
+| Isolamento batch/API (D1; AT-08, AT-09). | Protege fluxo de reservas da carga/falha do treino, com custo potencial de infraestrutura e operação separadas. A separação lógica é proposta; isolamento físico e orçamento não foram decididos. |
+| Delta apenas versus atualização incremental/retreino (D5; AT-05, AT-06). | Menos leitura pode reduzir custo e frescor; treino só no delta pode degradar representatividade ou esquecer histórico. Retreino histórico pode contrariar interpretação literal de “somente novos”. Decisão depende da finalidade/algoritmo. |
+| Rejeição e quarentena versus avanço parcial (D4, D8; AT-03, AT-05, AT-10). | Quarentena permite continuidade para falhas isoladas, mas introduz política de aceitação, acesso e reprocessamento; bloquear reduz risco de omissão silenciosa, mas pode atrasar todo o pipeline. Critérios precisam ser definidos. |
+| Aprovação, promoção e rollback do modelo (D6, D7; AT-06, AT-07). | Controle manual/explicitamente autorizado reduz promoção indevida, mas pode atrasar adoção; automatização exige objetivo, evidência, autoridade e limiares validados. Rollback só tem efeito operacional se houver consumidor. |
+| Minimização, retenção e reprodutibilidade (D7, D8, D10; AT-03, AT-10). | Snapshots/linhagem facilitam auditoria e replay; cópias aumentam exposição, custo e conflito potencial com retenção/exclusão. Política legal e operacional não está definida. |
+| Retry, lease e limites de recursos (D3, D9, D10; AT-03, AT-04, AT-08, AT-09). | Retry aumenta recuperação, mas pode estender atraso e custo; lease/fencing protege contra escrita obsoleta, exigindo estado confiável. Limites e alertas necessitam SLO/orçamento. |
+
+### Riscos, não-riscos e temas de risco
+
+“Não-risco” nesta avaliação significa risco reduzido pela proposta ou não aplicável ao escopo atualmente confirmado; não é garantia de ausência de falhas. Os itens são ligados a cenários e decisões para facilitar rastreabilidade na RTM.
+
+| Tipo | Registro e vínculo | Condição / evidência que falta |
+|---|---|---|
+| Risco | Perda ou reprocessamento duplicado de dados por cursor inadequado ou confirmação em ordem incorreta (AT-02, AT-03, AT-05; D3–D5). | Fonte, cursor, ordenação de updates tardios, idempotência e testes de falha ainda não validados. |
+| Risco | Dois jobs confirmarem o mesmo intervalo ou worker antigo sobrescrever watermark (AT-04; D3/D4). | Mecanismo de lease/fencing e persistência do estado são propostas, sem tecnologia/testes de produção escolhidos. |
+| Risco | Dados degradados treinarem candidato ou serem descartados sem rastreabilidade (AT-05/06; D4–D6/D8). | Esquema, finalidade, regras, limiares e política de quarentena pendentes. |
+| Risco | Modelo inferior ser promovido ou não haver rollback eficaz (AT-06/07; D6/D7). | Ainda não existe finalidade, baseline, métrica, aprovador ou consumidor confirmado; controle proposto não é requisito testado. |
+| Risco | Indisponibilidade, volume/custo ou concorrência degradarem a API e atrasarem o job (AT-08/09; D1/D9). | Arquitetura física, dimensionamento, SLO, limites e testes de carga representativos ainda ausentes. |
+| Risco | Exposição de dados pessoais em extração, quarentena, artefatos, logs ou serviços externos (AT-10; D8/D10). | Campos, finalidade/base legal, identidade de serviços, retenção e avaliação de privacidade precisam ser aprovados. |
+| Risco | Regras de perfis, estados, manutenção ou limites temporais serem implementadas de modo inconsistente (AT-01; D1/D2). | Personas e regras explicitam lacunas de permissões, transições, fronteiras de horário e efeito de manutenção sobre reservas existentes. |
+| Não-risco relativo | O job de treino não precisa estar no caminho síncrono de criar/alterar reserva segundo a arquitetura proposta (AT-08; D1/D2). | Depende de manter separação e de não introduzir consumidor online; produto não confirmou uso de inferência. |
+| Não-risco relativo | Falha de notificação não precisa desfazer uma reserva já confirmada (AT-08; RF-11 e fluxo proposto em §5). | A integração é opcional e a decisão descreve envio após confirmação; semântica final de notificação segue pendente. |
+| Não-risco relativo | A existência de um candidato ou artefato não implica por si só promoção no desenho proposto (AT-03/06/07; D6/D7; §§6–8). | Só se mantém se aprovação e referência ativa forem realmente separadas e testadas; ainda não há implementação nem política aprovada. |
+
+**Temas de risco transversais:**
+
+- **Semântica incompleta de requisitos e governança:** perfis, estados, “dados novos”, finalidade do ML e responsabilidade por promoção/rollback. Afeta AT-01–AT-07 e AT-10; decisões D1–D8. Resolver antes de declarar cobertura ou automatizar decisões.
+- **Atomicidade distribuída e reconciliação:** reserva/auditoria, registry/artefatos e watermark podem não compartilhar transação. Afeta AT-01, AT-03/04 e AT-07; D2–D4/D7. Exercitar falhas antes/depois de cada confirmação e documentar estado recuperável.
+- **Qualidade e linhagem dos dados:** fonte, esquema, atrasos, duplicidade, rejeições, retenção e uso permitido. Afeta AT-02/03/05/10; D3–D5/D8. Sem fonte/propósito definidos, não assumir que “dados da aplicação” são elegíveis para treino.
+- **Concentração de falhas e capacidade operacional:** disponibilidade da persistência, storage, registry, equipe de operação, alertas, limites de custo e recuperação. Afeta AT-03/04/08/09; D1/D3/D9/D10. Não há evidência de SLO ou teste de carga quantitativo.
+- **Métricas e decisões não verificáveis:** thresholds de desempenho, dados, modelo, segurança e recuperação. Afeta todos os cenários, sobretudo AT-01/02/05–10; RNF-05/06 e D6/D9/D10. Acordar critérios com stakeholders; até lá, as métricas são propostas de observação, não metas.
+
+### Conclusão da avaliação
+
+A direção proposta — preservar a aplicação transacional como autoridade, separar o batch, usar cursor/checkpoints/idempotência e manter candidato distinto de versão aprovada — é coerente com os drivers de integridade e com a contenção de falhas, mas ainda não foi validada em implementação. Os pontos de maior risco são a semântica da fonte e do watermark, reconciliação entre stores, critérios de qualidade e governança do modelo, além de ausência de SLO/RTO/RPO e política de dados. Não é possível concluir que a arquitetura atende quantitativamente desempenho ou disponibilidade sem metas aprovadas e testes. A RTM deve vincular cada cenário às decisões, casos de teste, evidências e responsáveis; priorização e limiares permanecem sujeitos à confirmação dos stakeholders.
