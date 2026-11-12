@@ -29,7 +29,7 @@ O pipeline é tratado como processamento de treinamento/validação e registro d
 | D4 | Avançar o watermark somente depois de dados, artefatos e resultado da execução estarem duráveis e verificados. | Evita perda de registros após falha e permite retomada segura. | Proposta técnica para cumprir “somente novos”. |
 | D5 | Separar ingestão incremental de dados da decisão sobre como ajustar o modelo: aplicar apenas o delta em algoritmo incremental ou, se não suportado, adotar política explícita para retreino. | “Processar apenas dados novos” não especifica se o modelo pode usar estado anterior ou dados históricos; treinar exclusivamente no delta pode causar esquecimento catastrófico. | Decisão de produto/ML pendente. |
 | D6 | Validar candidato contra baseline e critérios previamente aprovados; não promover automaticamente sem objetivo, métricas, limites e autoridade de aprovação definidos. | Não há objetivo ou critério de aceitação do modelo nos requisitos. Evita que um modelo degradado afete decisões. | Proposta sem requisito explícito de ML. |
-| D7 | Registrar versões imutáveis de dataset, código, configuração e modelo; manter referência ao modelo estável anterior e permitir rollback. | Reprodutibilidade, auditabilidade e recuperação, coerentes com RNF-04 e entregáveis de testes/qualidade. | Reprodutibilidade/auditabilidade têm suporte; registry e rollback não são requisitos explícitos. |
+| D7 | Registrar versões imutáveis de dataset, código, configuração e modelo; manter referência ao modelo estável anterior e permitir rollback. | RNF-04 sustenta a auditabilidade do histórico das reservas; linhagem de artefatos, versionamento de modelos e rollback são propostas adicionais para reprodutibilidade e recuperação. | A auditabilidade do histórico das reservas tem suporte em RNF-04; linhagem de artefatos, versionamento de modelos, registry e rollback são propostas adicionais, não requisitos explícitos. |
 | D8 | Tratar dados pessoais com minimização, controle de acesso, retenção definida e trilha de auditoria; não enviar dados identificáveis a serviços externos por padrão. | Usuários e reservas podem conter dados pessoais; RNF-02 exige segurança. Base legal, finalidade, retenção e campos ainda precisam ser determinados. | Segurança é requisito; medidas e conformidade dependem de análise LGPD. |
 | D9 | Começar com execução batch incremental e efêmera, dimensionada após medição, e limites de recursos/custo observáveis. | Não há volume, orçamento ou SLA documentado; processamento incremental evita releitura normal do histórico. | Proposta sem requisito explícito de custo ou plataforma. |
 | D10 | Expor resultados e estado do batch operacionalmente, sem registrar payloads pessoais em logs. | CI, testes, auditabilidade e recuperação precisam de evidências operacionais. | Proposta; níveis de serviço e retenção pendentes. |
@@ -398,6 +398,8 @@ Definir dashboards, severidades, destinatários, SLOs e retenção com operaçã
 
 Esta avaliação complementa, sem substituir, os fatos, lacunas, decisões propostas e riscos já registrados acima e em [arquitetura.md](./arquitetura.md). Usa personas, PRD, requisitos não funcionais e regras de negócio como fontes. A execução diária do pipeline é tratada como requisito desta atividade, não como requisito confirmado do produto. Não houve validação com stakeholders; prioridades, respostas esperadas e métricas abaixo são análise da equipe avaliadora, não compromisso de produto.
 
+A avaliação de D1–D10 e AT-01–AT-10 é conceitual: considera a proposta arquitetural documentada, não um sistema implementado ou validado em execução.
+
 Não há valores propostos de latência, volume, disponibilidade, recuperação, qualidade de dados ou modelo. As métricas indicam o que observar; seus limiares e, onde necessário, sua instrumentação precisam ser acordados com produto e operação. A prioridade é ordinal e provisória: **Importância** representa impacto para stakeholders/requisitos; **Dificuldade** representa incerteza e esforço arquitetural para satisfazer o cenário. Alta/média/baixa não são medições nem classificação aprovada. Os IDs dos cenários servem à rastreabilidade, não representam ranking; cada cenário registra explicitamente importância e dificuldade.
 
 ### Drivers avaliados
@@ -405,7 +407,7 @@ Não há valores propostos de latência, volume, disponibilidade, recuperação,
 | Ordem provisória | Driver | Base e distinção |
 |---|---|---|
 | 1 | Impedir falha de autorização e reservas duplicadas; manter a aplicação executável. | Critérios impeditivos da especificação e PRD; RF-01, RF-04–RF-06; RNF-01/02. |
-| 2 | Preservar integridade de alocação, histórico e dados mesmo sob concorrência, falha ou degradação. | Regras 1–5 e 10; RF-08/RF-10; RNF-01/04. |
+| 2 | Preservar a integridade da alocação e a auditabilidade do histórico. | Regras 1–5 e 10; RF-08/RF-10; RNF-01/04. Recuperação e durabilidade de dados sob falha ou degradação são propostas ou objetivos desta avaliação, não requisitos explícitos. |
 | 3 | Conter falhas do job e proteger dados processados. | Job diário pedido nesta atividade; isolamento, processamento incremental e privacidade são decisões propostas, não requisitos de produto já aprovados. |
 | 4 | Não promover nem continuar usando candidato de qualidade inferior; recuperar a versão anterior quando aplicável. | Não há consumidor ou finalidade de ML confirmados; D6/D7 e §§8–9 propõem salvaguardas sujeitas a decisão. |
 | 5 | Tornar operação, qualidade e resultados verificáveis. | RNF-04/05, entregáveis de RTM/testes e decisões D3/D4/D7/D10; SLOs operacionais não especificados. |
@@ -502,7 +504,7 @@ Utilidade do sistema
 
 - **Prioridade:** Importância alta; Dificuldade alta.
 - **Fonte:** Validação de candidato e aprovador de ML/produto (papéis ainda não definidos).
-- **Estímulo:** Um candidato treinado com dados novos tem resultado inferior ao baseline aprovado ou viola restrição de qualidade/fairness que venha a ser definida.
+- **Estímulo:** Um candidato treinado com dados novos tem resultado inferior ao baseline aprovado ou viola restrição de qualidade aprovada, se houver.
 - **Ambiente:** Treino concluído, mas objetivo, conjunto de validação, métricas e limiares ainda não aprovados nos requisitos.
 - **Artefato:** Validação, evidências, registry e estado de promoção (D5–D7; §8).
 - **Resposta:** Registrar evidências e reprovação; manter candidato inativo e versão aprovada anterior inalterada; não atribuir aprovação automática com base apenas na conclusão do job.
@@ -586,7 +588,7 @@ Utilidade do sistema
 - **Atomicidade distribuída e reconciliação:** reserva/auditoria, registry/artefatos e watermark podem não compartilhar transação. Afeta AT-01, AT-03/04 e AT-07; D2–D4/D7. Exercitar falhas antes/depois de cada confirmação e documentar estado recuperável.
 - **Qualidade e linhagem dos dados:** fonte, esquema, atrasos, duplicidade, rejeições, retenção e uso permitido. Afeta AT-02/03/05/10; D3–D5/D8. Sem fonte/propósito definidos, não assumir que “dados da aplicação” são elegíveis para treino.
 - **Concentração de falhas e capacidade operacional:** disponibilidade da persistência, storage, registry, equipe de operação, alertas, limites de custo e recuperação. Afeta AT-03/04/08/09; D1/D3/D9/D10. Não há evidência de SLO ou teste de carga quantitativo.
-- **Métricas e decisões não verificáveis:** thresholds de desempenho, dados, modelo, segurança e recuperação. Afeta todos os cenários, sobretudo AT-01/02/05–10; RNF-05/06 e D6/D9/D10. Acordar critérios com stakeholders; até lá, as métricas são propostas de observação, não metas.
+- **Métricas e decisões não verificáveis:** RNF-05 sustenta práticas de validação e testes; RNF-06 prevê testes de carga, sem metas quantitativas; RNF-02 é a referência de segurança. Limiares de desempenho, recuperação e critérios de qualidade dos dados e do modelo seguem propostos ou pendentes, não definidos por esses requisitos. Afeta todos os cenários, sobretudo AT-01/02/05–10; D6/D9/D10. Acordar critérios com stakeholders; até lá, as métricas são propostas de observação, não metas.
 
 ### Conclusão da avaliação
 
